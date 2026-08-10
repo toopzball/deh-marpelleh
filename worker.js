@@ -119,12 +119,14 @@ export class MarPelleRoom {
       return json({ ok: true });
     }
     if (url.pathname === "/info" && request.method === "GET") {
+      const who = url.searchParams.get("username");
       return json({
         exists: this.status !== "empty",
         visibility: this.visibility,
         status: this.status,
         playersCount: this.order.length,
         hostUsername: this.hostUsername,
+        youAreIn: !!(who && this.players.has(who)),
       });
     }
     return json({ error: "مسیر نامعتبر" }, 404);
@@ -473,8 +475,10 @@ async function handleCreateRoom(request, env) {
 }
 
 async function handleRoomInfo(request, env, code) {
+  const user = await getUserFromRequest(request, env);
   const roomId = env.MARPELLE_ROOM.idFromName(code.toUpperCase());
-  const res = await env.MARPELLE_ROOM.get(roomId).fetch("https://room/info");
+  const qs = user ? `?username=${encodeURIComponent(user.username)}` : "";
+  const res = await env.MARPELLE_ROOM.get(roomId).fetch(`https://room/info${qs}`);
   return res;
 }
 
