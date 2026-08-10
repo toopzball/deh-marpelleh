@@ -67,10 +67,37 @@ async function getUserFromRequest(request, env) {
 const LADDERS = { 4: 25, 28: 51, 62: 84 };
 const SNAKES = { 47: 9, 71: 35, 93: 58 };
 const MISFORTUNE_SQUARES = new Set([7, 13, 18, 22, 30, 38, 42, 55, 60, 67, 73, 79, 88, 92, 97]);
-const WHEEL_OPTIONS = ["shock_wire", "aghi_puzzle", "hamster_combat", "gozar"];
+const WHEEL_OPTIONS = ["shock_wire", "aghi_puzzle", "hamster_combat", "gozar", "middle_east"];
 const MARPELLE_WIN_POINTS = 20;
 const MARPELLE_TURN_MS = 45000; // اگه تویِ این مدت حرکت نکنه، نوبتش رد می‌شه (فرارِ غیرِ فعال)
 const MARPELLE_FORFEIT_MS = 30000; // اگه بعدِ قطعیِ اتصال تو این مدت برنگرده، بازنده‌ی خودکار می‌شه
+const MARPELLE_ROLL_COOLDOWN_MS = 3000; // فاصله‌ی حداقلِ بینِ دو تاس‌زدن
+const MIDDLE_EAST_SNAKE_COUNT = 15;
+const MIDDLE_EAST_TURNS = 2; // بعدِ این‌همه نوبتِ بازی (صرف‌نظر از اینکه نوبتِ کیه)، مارهای خاورمیانه جمع می‌شن
+
+// ۱۵ تا مارِ اضافه و موقت که فقط برایِ همون بازیکنی که تو خونه‌ی «خاورمیانه» گیر افتاده فعاله؛
+// حریف حتی اگه رویِ همون خونه‌ها بشینه هیچ آسیبی نمی‌بینه (چون این مارها روی نقشه‌ی اصلی
+// (LADDERS/SNAKES) اضافه نمی‌شن، فقط تویِ this.middleEast نگه داشته می‌شن و doRoll جدا چکش می‌کنه)
+function generateMiddleEastSnakes() {
+  const forbidden = new Set([
+    1, 100,
+    ...Object.keys(LADDERS).map(Number), ...Object.values(LADDERS),
+    ...Object.keys(SNAKES).map(Number), ...Object.values(SNAKES),
+    ...MISFORTUNE_SQUARES,
+  ]);
+  const result = {};
+  let guard = 0;
+  while (Object.keys(result).length < MIDDLE_EAST_SNAKE_COUNT && guard < 3000) {
+    guard++;
+    const from = 2 + Math.floor(Math.random() * 98); // بینِ ۲ تا ۹۹
+    if (forbidden.has(from) || result[from] != null) continue;
+    const drop = 3 + Math.floor(Math.random() * Math.min(from - 1, 25));
+    const to = Math.max(1, from - drop);
+    if (forbidden.has(to) || to >= from) continue;
+    result[from] = to;
+  }
+  return result;
+}
 
 function boardStaticInfo() {
   return { ladders: LADDERS, snakes: SNAKES, misfortune: [...MISFORTUNE_SQUARES] };
@@ -103,6 +130,8 @@ export class MarPelleRoom {
     this.rematchVotes = new Set();
     this._turnTimer = null;
     this._forfeitTimers = new Map();
+    this._lastRollAt = 0;
+    this.middleEast = null; // اثرِ فعالِ «خاورمیانه»: { username, snakes: {از:به}, turnsLeft }
   }
 
   async fetch(request) {
@@ -196,22 +225,36 @@ export class MarPelleRoom {
     if (msg.t === "rollDice") {
       if (this.status !== "playing" || this.turn !== username) return;
       if (player.pendingChallenge) return; // باید اول چالشِ فلاکت رو جواب بده، تاسی درکار نیست
+      const sinceLastRoll = Date.now() - this._lastRollAt;
+      if (sinceLastRoll < MARPELLE_ROLL_COOLDOWN_MS) {
+        this.send(player.ws, { t: "error", message: "یکم صبر کن، تاس هنوز کول‌داونه" });
+        return;
+      }
+      this._lastRollAt = Date.now();
       this.doRoll(username);
       return;
     }
 
     // نتیجه‌ی مینی‌گیمِ خونه‌ی فلاکت. سیم‌شوک: retry نامحدود همون‌جا، فقط success می‌فرسته.
     // پازلِ عاقی/همستر کامبت: هر نوبت یه فرصت؛ success یا fail هردو می‌رسه.
+    // توجه: این پیام دیگه به «نوبت» گره نخورده — چون حریفِ آزاد ممکنه همزمان داره تاس می‌ندازه،
+    // بازیکنِ گیرافتاده باید هر لحظه بتونه چالششو حل کنه، نه فقط وقتی دوباره نوبتش برسه.
     if (msg.t === "challengeResult") {
-      if (this.status !== "playing" || this.turn !== username) return;
+      if (this.status !== "playing") return;
       if (!player.pendingChallenge) return;
       const type = player.pendingChallenge.type;
       if (msg.success) {
         player.pendingChallenge = null;
-        this.finishTurn(username, `فلاکت رو رد کرد (${type})`);
+        // اگه همین الان هم نوبتِ خودشه (مثلاً حریف هم گیر کرده بود یا تازه نوبت برگشته)، تایمرِ
+        // نوبتشو دوباره از صفر شروع کن که به‌خاطرِ وقتی که صرفِ چالش کرده نبازه
+        if (this.turn === username) this.startTurnTimer();
+        this.broadcast();
       } else if (type !== "shock_wire") {
-        // سیم‌شوک هیچ‌وقت fail نمی‌فرسته (retry نامحدوده)؛ برایِ بقیه fail یعنی نوبتش رد شد
-        this.finishTurn(username, `تو فلاکت (${type}) موند`);
+        // سیم‌شوک هیچ‌وقت fail نمی‌فرسته (retry نامحدوده)؛ برایِ بقیه fail یعنی گیرش باز شد
+        // ولی نوبتش رو از دست داد (اگه الان نوبتِ خودش بود)
+        player.pendingChallenge = null;
+        if (this.turn === username) this.finishTurn(username, `تو فلاکت (${type}) موند`);
+        else this.broadcast();
       }
       return;
     }
@@ -228,6 +271,7 @@ export class MarPelleRoom {
         }
         this.winner = null;
         this.lastRoll = null;
+        this.middleEast = null;
         this.status = "playing";
         this.turn = this.order[0];
         this.startTurnTimer();
@@ -246,7 +290,9 @@ export class MarPelleRoom {
   doRoll(username) {
     this.clearTurnTimer();
     const player = this.players.get(username);
-    const roll = 1 + Math.floor(Math.random() * 6);
+    // تو حالتِ خاورمیانه (فقط برایِ بازیکنی که خودش گیرش انداخته)، تاس بینِ ۷ تا ۱۰ می‌ریزه
+    const inMiddleEast = this.middleEast && this.middleEast.username === username;
+    const roll = inMiddleEast ? (7 + Math.floor(Math.random() * 4)) : (1 + Math.floor(Math.random() * 6));
     this.lastRoll = { username, roll };
 
     const target = player.position + roll;
@@ -260,7 +306,19 @@ export class MarPelleRoom {
     let event = null;
     if (LADDERS[finalSquare]) { finalSquare = LADDERS[finalSquare]; event = "ladder"; }
     else if (SNAKES[finalSquare]) { finalSquare = SNAKES[finalSquare]; event = "snake"; }
+    else if (this.middleEast && this.middleEast.username === username && this.middleEast.snakes[finalSquare] != null) {
+      // این مارِ اضافه‌ی خاورمیانه‌ست؛ فقط چون خودِ صاحبِ اثره داره حرکت می‌کنه اثر می‌کنه
+      finalSquare = this.middleEast.snakes[finalSquare];
+      event = "snake";
+    }
     player.position = finalSquare;
+
+    // مصرفِ یه «نوبتِ بازی» از اثرِ خاورمیانه (بعدِ اینکه تاثیرش رو رویِ همین حرکت گذاشتیم)؛
+    // بعدِ MIDDLE_EAST_TURNS نوبت جمع می‌شه، صرف‌نظر از اینکه کدوم بازیکن تاس انداخته
+    if (this.middleEast) {
+      this.middleEast.turnsLeft--;
+      if (this.middleEast.turnsLeft <= 0) this.middleEast = null;
+    }
 
     if (finalSquare === 100) {
       this.status = "finished";
@@ -280,9 +338,20 @@ export class MarPelleRoom {
         this.finishTurn(username, "گذار کرد");
         return;
       }
+      if (type === "middle_east") {
+        // بدونِ مینی‌گیم؛ فوراً ۱۵ تا مارِ اضافه‌ی موقت (فقط برایِ همین بازیکن) رو نقشه فعال می‌شه
+        this.middleEast = { username, snakes: generateMiddleEastSnakes(), turnsLeft: MIDDLE_EAST_TURNS };
+        this.broadcast({ t: "wheelResult", username, type });
+        this.finishTurn(username, "خاورمیانه رو گرفت");
+        return;
+      }
       player.pendingChallenge = { type, startedAt: Date.now() };
       this.broadcast({ t: "wheelResult", username, type });
-      this.broadcast(); // وضعیتِ pendingChallenge رو هم پخش کن؛ نوبت هنوز همینه، منتظرِ challengeResult
+      // نوبت رو فوراً بده به حریف تا آزادانه تاس بندازه و جلو بره؛ این بازیکن هر لحظه که
+      // چالششو حل کرد (بدونِ نیاز به نوبت) دوباره تو بازی برمی‌گرده
+      this.turn = this.otherOf(username);
+      this.startTurnTimer();
+      this.broadcast(); // وضعیتِ pendingChallenge و نوبتِ جدید رو هم پخش کن
       return;
     }
 
@@ -378,6 +447,9 @@ export class MarPelleRoom {
       lastRoll: this.lastRoll,
       deadline: this.deadline,
       board: boardStaticInfo(),
+      middleEast: this.middleEast
+        ? { username: this.middleEast.username, snakes: this.middleEast.snakes, turnsLeft: this.middleEast.turnsLeft }
+        : null,
       players: this.order.map((u) => {
         const p = this.players.get(u);
         return {
