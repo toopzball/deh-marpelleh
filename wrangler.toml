@@ -15,4 +15,4 @@ class_name = "MarPelleLobby"
 
 [[migrations]]
 tag = "v1"
-new_classes = ["MarPelleRoom", "MarPelleLobby"]
+new_sqlite_classes = ["MarPelleRoom", "MarPelleLobby"]
