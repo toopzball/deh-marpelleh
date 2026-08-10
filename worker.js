@@ -6,7 +6,7 @@
 //
 // لازمه‌ی دیپلوی (Secrets، نه vars، چون این آدرس‌ها نباید تویِ ریپازیتوریِ گیت‌هاب دیده بشن):
 //   wrangler secret put MAIN_API_BASE     (مثلاً https://dehat-site.pages.dev یا آدرسِ وُرکرِ اصلی)
-//   wrangler secret put INTERNAL_KEY      (همون مقداری که تو وُرکرِ اصلی هم env.INTERNAL_KEY هست)
+//   wrangler secret put INT ERNAL_KEY      (همون مقداری که تو وُرکرِ اصلی هم env.INTERNAL_KEY هست)
 //
 // wrangler.toml باید دو تا Durable Object را bind کنه: MARPELLE_ROOM -> MarPelleRoom,
 // MARPELLE_LOBBY -> MarPelleLobby (یه instance ثابت با idFromName("global")).
