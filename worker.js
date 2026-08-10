@@ -71,7 +71,7 @@ const WHEEL_OPTIONS = ["shock_wire", "aghi_puzzle", "hamster_combat", "gozar", "
 const MARPELLE_WIN_POINTS = 20;
 const MARPELLE_TURN_MS = 45000; // اگه تویِ این مدت حرکت نکنه، نوبتش رد می‌شه (فرارِ غیرِ فعال)
 const MARPELLE_FORFEIT_MS = 30000; // اگه بعدِ قطعیِ اتصال تو این مدت برنگرده، بازنده‌ی خودکار می‌شه
-const MARPELLE_ROLL_COOLDOWN_MS = 3000; // فاصله‌ی حداقلِ بینِ دو تاس‌زدن
+const MARPELLE_ROLL_COOLDOWN_MS = 500; // فقط جلویِ دبل‌کلیک/اسپمِ سریع رو می‌گیره؛ سرعتِ نوبت‌ها با انیمیشنِ کلاینت تنظیم می‌شه
 const MIDDLE_EAST_SNAKE_COUNT = 15;
 const MIDDLE_EAST_TURNS = 2; // بعدِ این‌همه نوبتِ بازی (صرف‌نظر از اینکه نوبتِ کیه)، مارهای خاورمیانه جمع می‌شن
 
