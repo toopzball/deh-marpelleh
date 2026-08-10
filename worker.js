@@ -519,6 +519,11 @@ export default {
       } else {
         response = json({ error: "مسیرِ نامعتبر" }, 404);
       }
+      // مهم: جوابِ 101 (هندشیکِ وب‌ساکت) یه فیلدِ مخفیِ webSocket داره که با new Response(...) از بین می‌ره؛
+      // اگه دوباره بسازیمش، کلاینت وصل نمی‌شه و بلافاصله با کدِ 1006 قطع می‌شه. برایِ همچین جواب‌هایی
+      // باید همون Response اصلی رو بدونِ دست‌کاری برگردونیم (نیازی هم به CORS نداره، چون آپگریدِ WS هست).
+      if (response.status === 101) return response;
+
       const headers = new Headers(response.headers);
       for (const [k, v] of Object.entries(corsHeadersFor(request))) headers.set(k, v);
       return new Response(response.body, { status: response.status, headers });
